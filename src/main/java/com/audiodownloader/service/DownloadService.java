@@ -74,19 +74,21 @@ public class DownloadService {
             if (entries.isArray() && !entries.isEmpty()) {
                 for (JsonNode entry : entries) {
                     TrackInfo track = new TrackInfo();
+                    String channel = entry.path("channel").asText(entry.path("uploader").asText("Unknown Channel"));
                     track.setId(entry.path("id").asText(UUID.randomUUID().toString()));
-                    track.setTitle(titleNormalizer.normalize(entry.path("title").asText("Unknown Title")));
+                    track.setTitle(titleNormalizer.normalize(entry.path("title").asText("Unknown Title"), channel));
                     track.setDuration(formatDuration(entry.path("duration").asInt(0)));
-                    track.setChannel(entry.path("channel").asText(entry.path("uploader").asText("Unknown Channel")));
+                    track.setChannel(channel);
                     track.setSourceUrl("https://www.youtube.com/watch?v=" + entry.path("id").asText());
                     tracks.add(track);
                 }
             } else {
                 TrackInfo single = new TrackInfo();
+                String channel = root.path("channel").asText(root.path("uploader").asText("Unknown Channel"));
                 single.setId(root.path("id").asText(UUID.randomUUID().toString()));
-                single.setTitle(titleNormalizer.normalize(root.path("title").asText("Unknown Title")));
+                single.setTitle(titleNormalizer.normalize(root.path("title").asText("Unknown Title"), channel));
                 single.setDuration(formatDuration(root.path("duration").asInt(0)));
-                single.setChannel(root.path("channel").asText(root.path("uploader").asText("Unknown Channel")));
+                single.setChannel(channel);
                 single.setSourceUrl(url);
                 tracks.add(single);
             }
@@ -149,7 +151,7 @@ public class DownloadService {
                 return DownloadResult.failed("yt-dlp failed with exit code " + exit);
             }
             TrackMetadata metadata = new TrackMetadata();
-            metadata.setTitle(titleNormalizer.normalize(trackInfo.getTitle()));
+            metadata.setTitle(titleNormalizer.normalize(trackInfo.getTitle(), trackInfo.getChannel()));
             metadata.setArtist(trackInfo.getChannel());
             return DownloadResult.completed(state.downloadedFile, metadata);
         } catch (InterruptedException e) {

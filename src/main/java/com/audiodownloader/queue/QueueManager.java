@@ -9,6 +9,7 @@ import com.audiodownloader.service.MetadataService;
 import com.audiodownloader.ui.model.DownloadStatus;
 import com.audiodownloader.ui.model.QueueItem;
 import com.audiodownloader.ui.model.TrackInfo;
+import jakarta.annotation.PreDestroy;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -251,6 +252,22 @@ public class QueueManager {
     private void fireLog(String message) {
         for (QueueEventListener listener : listeners) {
             listener.onLog(message);
+        }
+    }
+
+    @PreDestroy
+    public void shutdown() {
+        paused.set(true);
+        for (var entry : runningTasks.entrySet()) {
+            downloadService.cancelTrack(entry.getKey());
+            entry.getValue().cancel(true);
+        }
+        runningTasks.clear();
+        executorService.shutdownNow();
+        try {
+            executorService.awaitTermination(3, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
         }
     }
 }

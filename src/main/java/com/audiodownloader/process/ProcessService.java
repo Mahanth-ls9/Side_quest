@@ -1,5 +1,6 @@
 package com.audiodownloader.process;
 
+import jakarta.annotation.PreDestroy;
 import org.springframework.stereotype.Service;
 
 import java.io.BufferedReader;
@@ -51,5 +52,22 @@ public class ProcessService {
     public boolean isRunning(String processId) {
         Process process = runningProcesses.get(processId);
         return process != null && process.isAlive();
+    }
+
+    @PreDestroy
+    public void shutdown() {
+        for (Process process : runningProcesses.values()) {
+            if (process != null && process.isAlive()) {
+                process.destroy();
+                try {
+                    if (!process.waitFor(500, java.util.concurrent.TimeUnit.MILLISECONDS)) {
+                        process.destroyForcibly();
+                    }
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+        }
+        runningProcesses.clear();
     }
 }

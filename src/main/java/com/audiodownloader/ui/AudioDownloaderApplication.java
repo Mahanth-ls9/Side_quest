@@ -2,6 +2,7 @@ package com.audiodownloader.ui;
 
 import com.audiodownloader.config.AppProperties;
 import javafx.application.Application;
+import javafx.application.Platform;
 import javafx.fxml.FXMLLoader;
 import javafx.scene.Parent;
 import javafx.scene.Scene;
@@ -35,6 +36,16 @@ public class AudioDownloaderApplication extends Application {
 
         stage.setTitle("Audio Downloader Pro");
         stage.setScene(scene);
+        stage.setOnCloseRequest(event -> {
+            try {
+                if (context != null) {
+                    context.close();
+                }
+            } finally {
+                Platform.exit();
+                System.exit(0);
+            }
+        });
         stage.show();
     }
 
@@ -43,6 +54,7 @@ public class AudioDownloaderApplication extends Application {
         if (context != null) {
             context.close();
         }
+        System.exit(0);
     }
 
     public static void main(String[] args) {

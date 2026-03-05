@@ -1,6 +1,7 @@
 package com.audiodownloader.ui;
 
 import com.audiodownloader.config.AppProperties;
+import com.audiodownloader.config.UserConfigService;
 import com.audiodownloader.library.DuplicateDetector;
 import com.audiodownloader.library.LibraryIndexService;
 import com.audiodownloader.metadata.TrackMetadata;
@@ -21,11 +22,13 @@ import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
 import javafx.fxml.FXML;
 import javafx.fxml.Initializable;
+import javafx.geometry.Insets;
 import javafx.scene.control.*;
 import javafx.scene.control.cell.CheckBoxTableCell;
 import javafx.scene.input.Clipboard;
 import javafx.scene.input.Dragboard;
 import javafx.scene.input.TransferMode;
+import javafx.scene.layout.GridPane;
 import javafx.util.Duration;
 import org.springframework.stereotype.Component;
 
@@ -73,6 +76,7 @@ public class MainController implements Initializable, QueueEventListener {
     private final DuplicateDetector duplicateDetector;
     private final AppProperties appProperties;
     private final DownloadHistoryService downloadHistoryService;
+    private final UserConfigService userConfigService;
 
     private final ObservableList<TrackInfo> playlistItems = FXCollections.observableArrayList();
     private final ObservableList<QueueItem> queueItems = FXCollections.observableArrayList();
@@ -84,13 +88,15 @@ public class MainController implements Initializable, QueueEventListener {
                           LibraryIndexService libraryIndexService,
                           DuplicateDetector duplicateDetector,
                           AppProperties appProperties,
-                          DownloadHistoryService downloadHistoryService) {
+                          DownloadHistoryService downloadHistoryService,
+                          UserConfigService userConfigService) {
         this.downloadService = downloadService;
         this.queueManager = queueManager;
         this.libraryIndexService = libraryIndexService;
         this.duplicateDetector = duplicateDetector;
         this.appProperties = appProperties;
         this.downloadHistoryService = downloadHistoryService;
+        this.userConfigService = userConfigService;
     }
 
     @Override
@@ -164,6 +170,46 @@ public class MainController implements Initializable, QueueEventListener {
     public void onClearFinished() {
         queueManager.clearFinished();
         queueItems.setAll(queueManager.getQueueItems());
+    }
+
+    @FXML
+    public void onOpenSettings() {
+        Dialog<ButtonType> dialog = new Dialog<>();
+        dialog.setTitle("Settings");
+        dialog.setHeaderText("Application Settings");
+        dialog.getDialogPane().getButtonTypes().addAll(ButtonType.OK, ButtonType.CANCEL);
+
+        GridPane grid = new GridPane();
+        grid.setHgap(10);
+        grid.setVgap(10);
+        grid.setPadding(new Insets(10));
+
+        TextField folderField = new TextField(defaultString(appProperties.getMusicFolder()));
+        TextField apiKeyField = new TextField(defaultString(appProperties.getAcoustIdApiKey()));
+
+        grid.add(new Label("Music Folder"), 0, 0);
+        grid.add(folderField, 1, 0);
+        grid.add(new Label("AcoustID API Key"), 0, 1);
+        grid.add(apiKeyField, 1, 1);
+
+        dialog.getDialogPane().setContent(grid);
+
+        dialog.showAndWait().ifPresent(result -> {
+            if (result == ButtonType.OK) {
+                String newFolder = folderField.getText() == null ? "" : folderField.getText().trim();
+                String newKey = apiKeyField.getText() == null ? "" : apiKeyField.getText().trim();
+
+                appProperties.setMusicFolder(newFolder.isBlank() ? appProperties.getMusicFolder() : newFolder);
+                appProperties.setAcoustIdApiKey(newKey);
+
+                userConfigService.save(new UserConfigService.UserConfig(
+                        appProperties.getAcoustIdApiKey(),
+                        appProperties.getMusicFolder()
+                ));
+                downloadFolderField.setText(appProperties.getMusicFolder());
+                appendLog("Settings saved to ~/.audio-downloader/config.properties");
+            }
+        });
     }
 
     private void setupPlaylistTable() {
@@ -268,6 +314,10 @@ public class MainController implements Initializable, QueueEventListener {
         }));
         clipboardWatchdog.setCycleCount(Timeline.INDEFINITE);
         clipboardWatchdog.play();
+    }
+
+    private String defaultString(String value) {
+        return value == null ? "" : value;
     }
 
     @PreDestroy

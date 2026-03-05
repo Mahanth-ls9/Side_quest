@@ -18,6 +18,7 @@
                 <TextField fx:id="urlField" promptText="Paste YouTube URL here" HBox.hgrow="ALWAYS"/>
                 <Button text="Fetch Playlist" onAction="#onFetchPlaylist"/>
                 <Button text="Download Selected" onAction="#onDownloadSelected"/>
+                <Button text="Settings" onAction="#onOpenSettings"/>
             </HBox>
             <HBox spacing="8.0">
                 <Label text="Download Folder:"/>

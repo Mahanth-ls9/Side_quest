@@ -41,10 +41,13 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path dist | Out-Null
+          $appVersion = "1.0.$env:GITHUB_RUN_NUMBER"
+          $upgradeUuid = "0d3274e4-2a1d-4d64-8f6e-bf1306d77d4a"
+
           jpackage `
-            --type exe `
+            --type msi `
             --name "Audio Downloader Pro" `
-            --app-version "1.0.0" `
+            --app-version $appVersion `
             --input target `
             --main-jar "audio-downloader-pro-1.0.0.jar" `
             --main-class "org.springframework.boot.loader.launch.JarLauncher" `
@@ -52,10 +55,26 @@ jobs:
             --vendor "Audio Downloader Pro Team" `
             --win-dir-chooser `
             --win-shortcut `
+            --win-upgrade-uuid $upgradeUuid
+
+          jpackage `
+            --type exe `
+            --name "Audio Downloader Pro" `
+            --app-version $appVersion `
+            --input target `
+            --main-jar "audio-downloader-pro-1.0.0.jar" `
+            --main-class "org.springframework.boot.loader.launch.JarLauncher" `
+            --dest dist `
+            --vendor "Audio Downloader Pro Team" `
+            --win-dir-chooser `
+            --win-shortcut `
+            --win-upgrade-uuid $upgradeUuid `
             --win-console
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: audio-downloader-pro-windows-exe
-          path: dist/*.exe
+          name: audio-downloader-pro-windows-installers
+          path: |
+            dist/*.exe
+            dist/*.msi

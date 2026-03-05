@@ -6,6 +6,7 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -17,8 +18,12 @@ public class ProcessService {
 
     public int runCommand(String processId,
                           List<String> command,
+                          Path workingDirectory,
                           Consumer<String> lineConsumer) throws IOException, InterruptedException {
         ProcessBuilder builder = new ProcessBuilder(command);
+        if (workingDirectory != null) {
+            builder.directory(workingDirectory.toFile());
+        }
         builder.redirectErrorStream(true);
         Process process = builder.start();
         runningProcesses.put(processId, process);

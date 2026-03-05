@@ -14,6 +14,7 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -95,6 +96,7 @@ public class DownloadService {
                                         Consumer<String> logConsumer) {
         String processId = "dl-" + trackInfo.getId();
         DownloadState state = new DownloadState();
+        Path stagingDir = resolveStagingDirectory();
 
         List<String> command = new ArrayList<>();
         command.add(properties.getYtDlpCommand());
@@ -126,16 +128,18 @@ public class DownloadService {
         command.add("title");
         command.add("\\s*\\(.*?\\)");
         command.add("");
+        command.add("-P");
+        command.add(stagingDir.toString());
         command.add("-o");
         command.add("%(title)s.%(ext)s");
         command.add(trackInfo.getSourceUrl());
 
         try {
-            int exit = processService.runCommand(processId, command, line -> {
+            int exit = processService.runCommand(processId, command, stagingDir, line -> {
                 logConsumer.accept(line);
                 Optional<ProgressUpdate> update = progressParser.parse(line);
                 update.ifPresent(progressConsumer);
-                extractDestination(line).ifPresent(path -> state.downloadedFile = Path.of(path));
+                extractDestination(line).ifPresent(path -> state.downloadedFile = toAbsolutePath(path, stagingDir));
             });
             if (exit != 0) {
                 return DownloadResult.failed("yt-dlp failed with exit code " + exit);
@@ -162,6 +166,30 @@ public class DownloadService {
             return Optional.of(matcher.group(1).trim());
         }
         return Optional.empty();
+    }
+
+    private Path toAbsolutePath(String rawPath, Path stagingDir) {
+        Path parsed = Path.of(rawPath);
+        if (parsed.isAbsolute()) {
+            return parsed;
+        }
+        return stagingDir.resolve(parsed).normalize();
+    }
+
+    private Path resolveStagingDirectory() {
+        Path configuredMusic = Path.of(properties.getMusicFolder());
+        Path staging = configuredMusic.resolve(".incoming");
+        try {
+            Files.createDirectories(staging);
+            return staging;
+        } catch (IOException e) {
+            Path fallback = Path.of(System.getProperty("user.home"), ".audio-downloader", "incoming");
+            try {
+                Files.createDirectories(fallback);
+            } catch (IOException ignored) {
+            }
+            return fallback;
+        }
     }
 
     private String formatDuration(int totalSeconds) {

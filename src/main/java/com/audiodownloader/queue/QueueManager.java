@@ -27,6 +27,7 @@ public class QueueManager {
     private final List<QueueItem> queueItems = new CopyOnWriteArrayList<>();
     private final Map<String, Future<?>> runningTasks = new ConcurrentHashMap<>();
     private final List<QueueEventListener> listeners = new CopyOnWriteArrayList<>();
+    private final Map<String, DownloadStatus> lastTerminalStatus = new ConcurrentHashMap<>();
     private final AtomicBoolean paused = new AtomicBoolean(false);
 
     public QueueManager(DownloadService downloadService,
@@ -50,6 +51,22 @@ public class QueueManager {
     }
 
     public void enqueue(TrackInfo trackInfo) {
+        String trackId = trackInfo.getId();
+        if (trackId != null) {
+            if (runningTasks.containsKey(trackId)) {
+                return;
+            }
+            boolean alreadyQueued = queueItems.stream()
+                    .anyMatch(item -> item.getTrackInfo().getId().equals(trackId)
+                            && item.getStatus() != DownloadStatus.COMPLETED
+                            && item.getStatus() != DownloadStatus.FAILED
+                            && item.getStatus() != DownloadStatus.CANCELED
+                            && item.getStatus() != DownloadStatus.DUPLICATE);
+            if (alreadyQueued) {
+                return;
+            }
+            lastTerminalStatus.remove(trackId);
+        }
         QueueItem queueItem = new QueueItem(trackInfo);
         queueItem.setStatus(DownloadStatus.WAITING);
         queueItems.add(queueItem);
@@ -63,6 +80,10 @@ public class QueueManager {
             if (item.getStatus() == DownloadStatus.DOWNLOADING || item.getStatus() == DownloadStatus.WAITING) {
                 item.setStatus(DownloadStatus.PAUSED);
                 downloadService.cancelTrack(item.getTrackInfo().getId());
+                Future<?> task = runningTasks.remove(item.getTrackInfo().getId());
+                if (task != null) {
+                    task.cancel(true);
+                }
                 fireUpdate(item);
             }
         }
@@ -91,7 +112,7 @@ public class QueueManager {
                         task.cancel(true);
                     }
                     fireUpdate(item);
-                    fireCompleted(item);
+                    fireCompletedOnce(item);
                 });
     }
 
@@ -104,12 +125,19 @@ public class QueueManager {
     }
 
     private void schedule(QueueItem item) {
+        if (paused.get() || isTerminal(item.getStatus())) {
+            return;
+        }
+        String trackId = item.getTrackInfo().getId();
+        if (runningTasks.containsKey(trackId)) {
+            return;
+        }
         Future<?> future = executorService.submit(() -> processQueueItem(item));
-        runningTasks.put(item.getTrackInfo().getId(), future);
+        runningTasks.put(trackId, future);
     }
 
     private void processQueueItem(QueueItem item) {
-        if (paused.get()) {
+        if (paused.get() || isTerminal(item.getStatus())) {
             return;
         }
         try {
@@ -124,12 +152,16 @@ public class QueueManager {
             }, this::fireLog);
 
             if (!result.success()) {
+                if (item.getStatus() == DownloadStatus.PAUSED) {
+                    fireUpdate(item);
+                    return;
+                }
                 if (item.getStatus() != DownloadStatus.CANCELED) {
                     item.setStatus(DownloadStatus.FAILED);
                     item.setErrorMessage(result.error());
                     fireUpdate(item);
                 }
-                fireCompleted(item);
+                fireCompletedOnce(item);
                 return;
             }
 
@@ -137,7 +169,7 @@ public class QueueManager {
                 item.setStatus(DownloadStatus.FAILED);
                 item.setErrorMessage("Downloaded file path not found from yt-dlp output");
                 fireUpdate(item);
-                fireCompleted(item);
+                fireCompletedOnce(item);
                 return;
             }
 
@@ -151,12 +183,16 @@ public class QueueManager {
                 item.setProgress(1.0);
             }
             fireUpdate(item);
-            fireCompleted(item);
+            fireCompletedOnce(item);
         } catch (Exception e) {
+            if (item.getStatus() == DownloadStatus.PAUSED || item.getStatus() == DownloadStatus.CANCELED) {
+                fireUpdate(item);
+                return;
+            }
             item.setStatus(DownloadStatus.FAILED);
             item.setErrorMessage(e.getMessage());
             fireUpdate(item);
-            fireCompleted(item);
+            fireCompletedOnce(item);
         } finally {
             runningTasks.remove(item.getTrackInfo().getId());
         }
@@ -172,6 +208,25 @@ public class QueueManager {
         for (QueueEventListener listener : listeners) {
             listener.onQueueItemCompleted(item);
         }
+    }
+
+    private void fireCompletedOnce(QueueItem item) {
+        if (!isTerminal(item.getStatus())) {
+            return;
+        }
+        String trackId = item.getTrackInfo().getId();
+        DownloadStatus previous = lastTerminalStatus.put(trackId, item.getStatus());
+        if (previous == item.getStatus()) {
+            return;
+        }
+        fireCompleted(item);
+    }
+
+    private boolean isTerminal(DownloadStatus status) {
+        return status == DownloadStatus.COMPLETED
+                || status == DownloadStatus.FAILED
+                || status == DownloadStatus.CANCELED
+                || status == DownloadStatus.DUPLICATE;
     }
 
     private void fireLog(String message) {

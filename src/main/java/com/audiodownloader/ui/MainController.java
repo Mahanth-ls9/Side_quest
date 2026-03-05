@@ -16,7 +16,6 @@ import com.audiodownloader.ui.model.QueueItem;
 import com.audiodownloader.ui.model.TrackInfo;
 import jakarta.annotation.PreDestroy;
 import javafx.application.Platform;
-import javafx.beans.property.SimpleBooleanProperty;
 import javafx.beans.property.SimpleStringProperty;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
@@ -24,7 +23,6 @@ import javafx.fxml.FXML;
 import javafx.fxml.Initializable;
 import javafx.geometry.Insets;
 import javafx.scene.control.*;
-import javafx.scene.control.cell.CheckBoxTableCell;
 import javafx.scene.input.Clipboard;
 import javafx.scene.input.Dragboard;
 import javafx.scene.input.TransferMode;
@@ -33,9 +31,15 @@ import javafx.util.Duration;
 import org.springframework.stereotype.Component;
 
 import java.net.URL;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.ResourceBundle;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 @Component
 public class MainController implements Initializable, QueueEventListener {
@@ -69,6 +73,12 @@ public class MainController implements Initializable, QueueEventListener {
     private TextArea logsArea;
     @FXML
     private ListView<String> completedList;
+    @FXML
+    private Button fetchPlaylistButton;
+    @FXML
+    private Button downloadSelectedButton;
+    @FXML
+    private Button settingsButton;
 
     private final DownloadService downloadService;
     private final QueueManager queueManager;
@@ -81,7 +91,12 @@ public class MainController implements Initializable, QueueEventListener {
     private final ObservableList<TrackInfo> playlistItems = FXCollections.observableArrayList();
     private final ObservableList<QueueItem> queueItems = FXCollections.observableArrayList();
     private final ObservableList<String> completedItems = FXCollections.observableArrayList();
+    private final ExecutorService backgroundExecutor = Executors.newFixedThreadPool(2);
+    private final ConcurrentLinkedQueue<String> pendingLogs = new ConcurrentLinkedQueue<>();
+    private final Map<String, DownloadStatus> completedStatusByTrack = new HashMap<>();
     private Timeline clipboardWatchdog;
+    private Timeline logFlushTimer;
+    private long lastQueueRefreshMs = 0;
 
     public MainController(DownloadService downloadService,
                           QueueManager queueManager,
@@ -110,6 +125,7 @@ public class MainController implements Initializable, QueueEventListener {
         completedItems.addAll(downloadHistoryService.loadRecent(100));
         enableDragDropUrl();
         enableClipboardDetection();
+        startLogFlusher();
     }
 
     @FXML
@@ -119,28 +135,42 @@ public class MainController implements Initializable, QueueEventListener {
             appendLog("Please enter a valid URL.");
             return;
         }
+        setFetchInProgress(true);
         appendLog("Fetching playlist: " + url);
-        List<TrackInfo> tracks = downloadService.fetchPlaylist(url);
-        for (TrackInfo track : tracks) {
-            track.setId(track.getId() == null ? UUID.randomUUID().toString() : track.getId());
-            TrackMetadata metadata = new TrackMetadata();
-            metadata.setTitle(track.getTitle());
-            metadata.setArtist(track.getChannel());
-            metadata.setAlbum("Unknown Album");
-            if (duplicateDetector.isDuplicate(track.getTitle() + ".m4a", metadata)) {
-                track.setStatus(DownloadStatus.DUPLICATE);
-                track.setSelected(false);
-            } else {
-                track.setStatus(DownloadStatus.READY);
-            }
-        }
-        playlistItems.setAll(tracks);
+        CompletableFuture
+                .supplyAsync(() -> downloadService.fetchPlaylist(url), backgroundExecutor)
+                .thenAccept(tracks -> {
+                    for (TrackInfo track : tracks) {
+                        track.setId(track.getId() == null ? UUID.randomUUID().toString() : track.getId());
+                        TrackMetadata metadata = new TrackMetadata();
+                        metadata.setTitle(track.getTitle());
+                        metadata.setArtist(track.getChannel());
+                        metadata.setAlbum("Unknown Album");
+                        if (duplicateDetector.isDuplicate(track.getTitle() + ".m4a", metadata)) {
+                            track.setStatus(DownloadStatus.DUPLICATE);
+                            track.setSelected(false);
+                        } else {
+                            track.setStatus(DownloadStatus.READY);
+                        }
+                    }
+                    Platform.runLater(() -> {
+                        playlistItems.setAll(tracks);
+                        setFetchInProgress(false);
+                    });
+                })
+                .exceptionally(ex -> {
+                    Platform.runLater(() -> {
+                        appendLog("Playlist fetch failed: " + ex.getMessage());
+                        setFetchInProgress(false);
+                    });
+                    return null;
+                });
     }
 
     @FXML
     public void onDownloadSelected() {
         for (TrackInfo track : playlistItems) {
-            if (track.isSelected() && track.getStatus() != DownloadStatus.DUPLICATE) {
+            if (track.isSelected() && track.getStatus() == DownloadStatus.READY) {
                 queueManager.enqueue(track);
                 track.setStatus(DownloadStatus.WAITING);
             }
@@ -170,6 +200,7 @@ public class MainController implements Initializable, QueueEventListener {
     public void onClearFinished() {
         queueManager.clearFinished();
         queueItems.setAll(queueManager.getQueueItems());
+        queueTable.refresh();
     }
 
     @FXML
@@ -213,13 +244,38 @@ public class MainController implements Initializable, QueueEventListener {
     }
 
     private void setupPlaylistTable() {
-        selectColumn.setCellValueFactory(cellData -> {
-            TrackInfo item = cellData.getValue();
-            SimpleBooleanProperty property = new SimpleBooleanProperty(item.isSelected());
-            property.addListener((obs, oldVal, newVal) -> item.setSelected(newVal));
-            return property;
+        playlistTable.setEditable(true);
+        selectColumn.setEditable(true);
+        selectColumn.setCellValueFactory(cellData -> cellData.getValue().selectedProperty());
+        selectColumn.setCellFactory(column -> new TableCell<>() {
+            private final CheckBox checkBox = new CheckBox();
+
+            {
+                checkBox.setOnAction(event -> {
+                    if (getIndex() >= 0 && getIndex() < playlistTable.getItems().size()) {
+                        TrackInfo track = playlistTable.getItems().get(getIndex());
+                        if (track.getStatus() != DownloadStatus.DUPLICATE) {
+                            track.setSelected(checkBox.isSelected());
+                        } else {
+                            checkBox.setSelected(false);
+                        }
+                    }
+                });
+            }
+
+            @Override
+            protected void updateItem(Boolean item, boolean empty) {
+                super.updateItem(item, empty);
+                if (empty || getIndex() < 0 || getIndex() >= playlistTable.getItems().size()) {
+                    setGraphic(null);
+                    return;
+                }
+                TrackInfo track = playlistTable.getItems().get(getIndex());
+                checkBox.setSelected(track.isSelected());
+                checkBox.setDisable(track.getStatus() == DownloadStatus.DUPLICATE);
+                setGraphic(checkBox);
+            }
         });
-        selectColumn.setCellFactory(CheckBoxTableCell.forTableColumn(selectColumn));
         titleColumn.setCellValueFactory(cellData -> new SimpleStringProperty(cellData.getValue().getTitle()));
         durationColumn.setCellValueFactory(cellData -> new SimpleStringProperty(cellData.getValue().getDuration()));
         channelColumn.setCellValueFactory(cellData -> new SimpleStringProperty(cellData.getValue().getChannel()));
@@ -256,28 +312,48 @@ public class MainController implements Initializable, QueueEventListener {
     @Override
     public void onQueueItemUpdated(QueueItem item) {
         Platform.runLater(() -> {
-            queueItems.setAll(queueManager.getQueueItems());
-            queueTable.refresh();
+            int idx = findQueueIndex(item.getTrackInfo().getId());
+            if (idx < 0) {
+                queueItems.add(item);
+            } else {
+                queueItems.set(idx, item);
+            }
+            long now = System.currentTimeMillis();
+            if (now - lastQueueRefreshMs > 120) {
+                queueTable.refresh();
+                lastQueueRefreshMs = now;
+            }
         });
     }
 
     @Override
     public void onQueueItemCompleted(QueueItem item) {
         Platform.runLater(() -> {
-            String line = item.getTrackInfo().getTitle() + " - " + item.getStatus();
-            completedItems.add(line);
-            downloadHistoryService.append(item);
-            queueItems.setAll(queueManager.getQueueItems());
+            String trackId = item.getTrackInfo().getId();
+            DownloadStatus last = completedStatusByTrack.get(trackId);
+            if (last != item.getStatus()) {
+                completedStatusByTrack.put(trackId, item.getStatus());
+                String line = item.getTrackInfo().getTitle() + " - " + item.getStatus();
+                completedItems.add(line);
+                downloadHistoryService.append(item);
+            }
+            int idx = findQueueIndex(item.getTrackInfo().getId());
+            if (idx >= 0) {
+                queueItems.set(idx, item);
+            } else {
+                queueItems.add(item);
+            }
+            queueTable.refresh();
         });
     }
 
     @Override
     public void onLog(String message) {
-        appendLog(message);
+        pendingLogs.offer(message);
     }
 
     private void appendLog(String message) {
-        Platform.runLater(() -> logsArea.appendText(message + System.lineSeparator()));
+        pendingLogs.offer(message);
     }
 
     private void enableDragDropUrl() {
@@ -316,6 +392,60 @@ public class MainController implements Initializable, QueueEventListener {
         clipboardWatchdog.play();
     }
 
+    private void startLogFlusher() {
+        logFlushTimer = new Timeline(new KeyFrame(Duration.millis(180), event -> {
+            if (pendingLogs.isEmpty()) {
+                return;
+            }
+            StringBuilder batch = new StringBuilder();
+            int count = 0;
+            String line;
+            while ((line = pendingLogs.poll()) != null && count < 80) {
+                batch.append(line).append(System.lineSeparator());
+                count++;
+            }
+            logsArea.appendText(batch.toString());
+            trimLogs(2500);
+        }));
+        logFlushTimer.setCycleCount(Timeline.INDEFINITE);
+        logFlushTimer.play();
+    }
+
+    private void trimLogs(int maxLines) {
+        String text = logsArea.getText();
+        int lines = text.split("\r?\n").length;
+        if (lines <= maxLines) {
+            return;
+        }
+        int drop = lines - maxLines;
+        int index = 0;
+        for (int i = 0; i < drop; i++) {
+            index = text.indexOf('\n', index);
+            if (index < 0) {
+                break;
+            }
+            index++;
+        }
+        if (index > 0 && index < text.length()) {
+            logsArea.setText(text.substring(index));
+        }
+    }
+
+    private int findQueueIndex(String trackId) {
+        for (int i = 0; i < queueItems.size(); i++) {
+            if (queueItems.get(i).getTrackInfo().getId().equals(trackId)) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private void setFetchInProgress(boolean inProgress) {
+        fetchPlaylistButton.setDisable(inProgress);
+        downloadSelectedButton.setDisable(inProgress);
+        settingsButton.setDisable(inProgress);
+    }
+
     private String defaultString(String value) {
         return value == null ? "" : value;
     }
@@ -325,5 +455,9 @@ public class MainController implements Initializable, QueueEventListener {
         if (clipboardWatchdog != null) {
             clipboardWatchdog.stop();
         }
+        if (logFlushTimer != null) {
+            logFlushTimer.stop();
+        }
+        backgroundExecutor.shutdownNow();
     }
 }

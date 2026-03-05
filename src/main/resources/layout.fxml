@@ -16,9 +16,9 @@
             <Label text="Audio Downloader Pro" styleClass="title-label"/>
             <HBox spacing="8.0">
                 <TextField fx:id="urlField" promptText="Paste YouTube URL here" HBox.hgrow="ALWAYS"/>
-                <Button text="Fetch Playlist" onAction="#onFetchPlaylist"/>
-                <Button text="Download Selected" onAction="#onDownloadSelected"/>
-                <Button text="Settings" onAction="#onOpenSettings"/>
+                <Button fx:id="fetchPlaylistButton" text="Fetch Playlist" onAction="#onFetchPlaylist"/>
+                <Button fx:id="downloadSelectedButton" text="Download Selected" onAction="#onDownloadSelected"/>
+                <Button fx:id="settingsButton" text="Settings" onAction="#onOpenSettings"/>
             </HBox>
             <HBox spacing="8.0">
                 <Label text="Download Folder:"/>

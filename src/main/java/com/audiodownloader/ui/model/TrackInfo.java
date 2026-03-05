@@ -1,8 +1,11 @@
 package com.audiodownloader.ui.model;
 
+import javafx.beans.property.BooleanProperty;
+import javafx.beans.property.SimpleBooleanProperty;
+
 public class TrackInfo {
     private String id;
-    private boolean selected = true;
+    private final BooleanProperty selected = new SimpleBooleanProperty(true);
     private String title;
     private String duration;
     private String channel;
@@ -18,11 +21,15 @@ public class TrackInfo {
     }
 
     public boolean isSelected() {
-        return selected;
+        return selected.get();
     }
 
     public void setSelected(boolean selected) {
-        this.selected = selected;
+        this.selected.set(selected);
+    }
+
+    public BooleanProperty selectedProperty() {
+        return selected;
     }
 
     public String getTitle() {

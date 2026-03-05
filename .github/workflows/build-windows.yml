@@ -22,6 +22,18 @@ jobs:
           java-version: "21"
           cache: maven
 
+      - name: Install Runtime Dependencies
+        shell: pwsh
+        run: |
+          choco install yt-dlp ffmpeg chromaprint -y --no-progress
+
+      - name: Verify Runtime Dependencies
+        shell: pwsh
+        run: |
+          yt-dlp --version
+          ffmpeg -version
+          fpcalc -version
+
       - name: Build Jar
         run: mvn -B clean package -DskipTests
 

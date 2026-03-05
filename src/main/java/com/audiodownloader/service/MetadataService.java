@@ -2,6 +2,7 @@ package com.audiodownloader.service;
 
 import com.audiodownloader.config.AppProperties;
 import com.audiodownloader.metadata.TrackMetadata;
+import com.audiodownloader.metadata.TitleNormalizer;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Service;
 
@@ -10,6 +11,9 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.List;
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
 
 @Service
 public class MetadataService {
@@ -18,17 +22,20 @@ public class MetadataService {
     private final MusicBrainzService musicBrainzService;
     private final CoverArtService coverArtService;
     private final AppProperties appProperties;
+    private final TitleNormalizer titleNormalizer;
 
     public MetadataService(AcoustIdService acoustIdService,
                            AcoustIdLookupQueue acoustIdLookupQueue,
                            MusicBrainzService musicBrainzService,
                            CoverArtService coverArtService,
-                           AppProperties appProperties) {
+                           AppProperties appProperties,
+                           TitleNormalizer titleNormalizer) {
         this.acoustIdService = acoustIdService;
         this.acoustIdLookupQueue = acoustIdLookupQueue;
         this.musicBrainzService = musicBrainzService;
         this.coverArtService = coverArtService;
         this.appProperties = appProperties;
+        this.titleNormalizer = titleNormalizer;
     }
 
     public TrackMetadata enrichMetadata(Path downloadedFile, TrackMetadata baseMetadata) {
@@ -42,7 +49,7 @@ public class MetadataService {
 
     private TrackMetadata mergeWithOnlineMetadata(Path downloadedFile, TrackMetadata baseMetadata) {
         TrackMetadata result = new TrackMetadata();
-        result.setTitle(baseMetadata.getTitle());
+        result.setTitle(titleNormalizer.normalize(baseMetadata.getTitle()));
         result.setArtist(baseMetadata.getArtist());
         result.setAlbum(baseMetadata.getAlbum());
 
@@ -54,7 +61,7 @@ public class MetadataService {
             if (mbResult != null && mbResult.metadata() != null) {
                 TrackMetadata mb = mbResult.metadata();
                 if (StringUtils.isNotBlank(mb.getTitle())) {
-                    result.setTitle(mb.getTitle());
+                    result.setTitle(titleNormalizer.normalize(mb.getTitle()));
                 }
                 if (StringUtils.isNotBlank(mb.getArtist())) {
                     result.setArtist(mb.getArtist());
@@ -77,7 +84,7 @@ public class MetadataService {
             result.setAlbum("Unknown Album");
         }
         if (StringUtils.isBlank(result.getTitle())) {
-            result.setTitle(downloadedFile.getFileName().toString().replace(".m4a", ""));
+            result.setTitle(titleNormalizer.normalize(downloadedFile.getFileName().toString().replace(".m4a", "")));
         }
         if (StringUtils.isBlank(result.getAlbumArtist())) {
             result.setAlbumArtist(result.getArtist());
@@ -133,6 +140,11 @@ public class MetadataService {
             command.add(tempAudio.toString());
 
             Process process = new ProcessBuilder(command).redirectErrorStream(true).start();
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+                while (reader.readLine() != null) {
+                    // Drain ffmpeg output to avoid process blocking on full stdout/stderr pipes.
+                }
+            }
             int exit = process.waitFor();
             if (exit == 0) {
                 Files.move(tempAudio, file, StandardCopyOption.REPLACE_EXISTING);
@@ -155,15 +167,26 @@ public class MetadataService {
 
     private Path organizeFile(Path sourceFile, TrackMetadata metadata) {
         try {
-            String artist = sanitize(defaultString(metadata.getArtist(), "Unknown Artist"));
-            String album = sanitize(defaultString(metadata.getAlbum(), "Unknown Album"));
+            String artist = clamp(sanitize(defaultString(metadata.getArtist(), "Unknown Artist")), 80);
+            String album = clamp(sanitize(defaultString(metadata.getAlbum(), "Unknown Album")), 80);
             String track = String.format("%02d", parseTrack(metadata.getTrackNumber()));
-            String title = sanitize(defaultString(metadata.getTitle(), sourceFile.getFileName().toString().replace(".m4a", "")));
+            String title = clamp(sanitize(defaultString(metadata.getTitle(),
+                    sourceFile.getFileName().toString().replace(".m4a", ""))), 120);
+
+            if (artist.isBlank()) {
+                artist = "Unknown Artist";
+            }
+            if (album.isBlank()) {
+                album = "Unknown Album";
+            }
+            if (title.isBlank()) {
+                title = "Unknown Track";
+            }
 
             Path targetDir = Path.of(appProperties.getMusicFolder(), artist, album);
             Files.createDirectories(targetDir);
-            Path target = targetDir.resolve(track + " " + title + ".m4a");
-            Files.move(sourceFile, target, StandardCopyOption.REPLACE_EXISTING);
+            Path target = nextAvailableTarget(targetDir, track + " " + title, ".m4a");
+            safeMove(sourceFile, target);
             return target;
         } catch (Exception e) {
             return sourceFile;
@@ -181,6 +204,32 @@ public class MetadataService {
 
     private String sanitize(String value) {
         return value.replaceAll("[\\\\/:*?\"<>|]", "").trim();
+    }
+
+    private String clamp(String value, int max) {
+        if (value == null) {
+            return "";
+        }
+        return value.length() <= max ? value : value.substring(0, max).trim();
+    }
+
+    private Path nextAvailableTarget(Path targetDir, String baseName, String ext) {
+        Path candidate = targetDir.resolve(baseName + ext);
+        int attempt = 1;
+        while (Files.exists(candidate)) {
+            candidate = targetDir.resolve(baseName + " (" + attempt + ")" + ext);
+            attempt++;
+        }
+        return candidate;
+    }
+
+    private void safeMove(Path source, Path target) throws IOException {
+        try {
+            Files.move(source, target, StandardCopyOption.ATOMIC_MOVE);
+        } catch (IOException moveError) {
+            Files.copy(source, target, StandardCopyOption.REPLACE_EXISTING);
+            Files.deleteIfExists(source);
+        }
     }
 
     private String defaultString(String value) {

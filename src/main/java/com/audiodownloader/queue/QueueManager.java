@@ -23,6 +23,7 @@ public class QueueManager {
     private final MetadataService metadataService;
     private final DuplicateDetector duplicateDetector;
     private final LibraryIndexService libraryIndexService;
+    private final AppProperties appProperties;
     private final ExecutorService executorService;
     private final List<QueueItem> queueItems = new CopyOnWriteArrayList<>();
     private final Map<String, Future<?>> runningTasks = new ConcurrentHashMap<>();
@@ -39,6 +40,7 @@ public class QueueManager {
         this.metadataService = metadataService;
         this.duplicateDetector = duplicateDetector;
         this.libraryIndexService = libraryIndexService;
+        this.appProperties = appProperties;
         this.executorService = Executors.newFixedThreadPool(appProperties.getMaxConcurrentDownloads());
     }
 
@@ -173,14 +175,31 @@ public class QueueManager {
                 return;
             }
 
+            fireLog("[Metadata] Starting enrichment for: " + item.getTrackInfo().getTitle());
+            if (appProperties.getAcoustIdApiKey() == null || appProperties.getAcoustIdApiKey().isBlank()) {
+                fireLog("[Metadata] AcoustID API key missing. Using yt-dlp metadata fallback.");
+            } else {
+                fireLog("[Metadata] AcoustID API key detected. Fingerprint lookup enabled.");
+            }
+
             TrackMetadata metadata = metadataService.enrichMetadata(result.downloadedFile(), result.baseMetadata());
+            if (metadata.getFingerprint() == null || metadata.getFingerprint().isBlank()) {
+                fireLog("[Metadata] No fingerprint/AcoustID match found. Kept fallback metadata.");
+            } else {
+                fireLog("[Metadata] Fingerprint generated and metadata enriched.");
+            }
             if (duplicateDetector.isDuplicate(result.downloadedFile().getFileName().toString(), metadata)) {
                 item.setStatus(DownloadStatus.DUPLICATE);
+                fireLog("[Library] Duplicate detected. Skipped: " + item.getTrackInfo().getTitle());
             } else {
                 var finalPath = metadataService.tagAndOrganize(result.downloadedFile(), metadata);
                 libraryIndexService.indexFile(finalPath, metadata);
                 item.setStatus(DownloadStatus.COMPLETED);
                 item.setProgress(1.0);
+                fireLog("[Library] Organized file to: " + finalPath);
+                if (finalPath.equals(result.downloadedFile())) {
+                    fireLog("[Library] Warning: file stayed in staging directory. Check file/path permissions.");
+                }
             }
             fireUpdate(item);
             fireCompletedOnce(item);

@@ -2,6 +2,7 @@ package com.audiodownloader.service;
 
 import com.audiodownloader.config.AppProperties;
 import com.audiodownloader.metadata.TrackMetadata;
+import com.audiodownloader.metadata.TitleNormalizer;
 import com.audiodownloader.process.ProcessService;
 import com.audiodownloader.process.ProgressParser;
 import com.audiodownloader.process.ProgressUpdate;
@@ -32,15 +33,18 @@ public class DownloadService {
     private final ProcessService processService;
     private final ProgressParser progressParser;
     private final ObjectMapper objectMapper;
+    private final TitleNormalizer titleNormalizer;
 
     public DownloadService(AppProperties properties,
                            ProcessService processService,
                            ProgressParser progressParser,
-                           ObjectMapper objectMapper) {
+                           ObjectMapper objectMapper,
+                           TitleNormalizer titleNormalizer) {
         this.properties = properties;
         this.processService = processService;
         this.progressParser = progressParser;
         this.objectMapper = objectMapper;
+        this.titleNormalizer = titleNormalizer;
     }
 
     public List<TrackInfo> fetchPlaylist(String url) {
@@ -71,7 +75,7 @@ public class DownloadService {
                 for (JsonNode entry : entries) {
                     TrackInfo track = new TrackInfo();
                     track.setId(entry.path("id").asText(UUID.randomUUID().toString()));
-                    track.setTitle(entry.path("title").asText("Unknown Title"));
+                    track.setTitle(titleNormalizer.normalize(entry.path("title").asText("Unknown Title")));
                     track.setDuration(formatDuration(entry.path("duration").asInt(0)));
                     track.setChannel(entry.path("channel").asText(entry.path("uploader").asText("Unknown Channel")));
                     track.setSourceUrl("https://www.youtube.com/watch?v=" + entry.path("id").asText());
@@ -80,7 +84,7 @@ public class DownloadService {
             } else {
                 TrackInfo single = new TrackInfo();
                 single.setId(root.path("id").asText(UUID.randomUUID().toString()));
-                single.setTitle(root.path("title").asText("Unknown Title"));
+                single.setTitle(titleNormalizer.normalize(root.path("title").asText("Unknown Title")));
                 single.setDuration(formatDuration(root.path("duration").asInt(0)));
                 single.setChannel(root.path("channel").asText(root.path("uploader").asText("Unknown Channel")));
                 single.setSourceUrl(url);
@@ -145,7 +149,7 @@ public class DownloadService {
                 return DownloadResult.failed("yt-dlp failed with exit code " + exit);
             }
             TrackMetadata metadata = new TrackMetadata();
-            metadata.setTitle(trackInfo.getTitle());
+            metadata.setTitle(titleNormalizer.normalize(trackInfo.getTitle()));
             metadata.setArtist(trackInfo.getChannel());
             return DownloadResult.completed(state.downloadedFile, metadata);
         } catch (InterruptedException e) {

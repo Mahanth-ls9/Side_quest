@@ -47,11 +47,12 @@ jobs:
             --app-version "1.0.0" `
             --input target `
             --main-jar "audio-downloader-pro-1.0.0.jar" `
-            --main-class "com.audiodownloader.ui.AudioDownloaderApplication" `
+            --main-class "org.springframework.boot.loader.launch.JarLauncher" `
             --dest dist `
             --vendor "Audio Downloader Pro Team" `
             --win-dir-chooser `
-            --win-shortcut
+            --win-shortcut `
+            --win-console
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4

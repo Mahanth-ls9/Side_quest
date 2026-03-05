@@ -15,7 +15,7 @@ jpackage \
   --app-version "${APP_VERSION}" \
   --input target \
   --main-jar "${JAR_NAME}" \
-  --main-class com.audiodownloader.ui.AudioDownloaderApplication \
+  --main-class org.springframework.boot.loader.launch.JarLauncher \
   --type "${INSTALLER_TYPE}" \
   --dest /dist \
   --vendor "Audio Downloader Pro Team" \

@@ -1,0 +1,30 @@
+.env
+# Build outputs
+target/
+dist/
+*.jar
+*.war
+*.ear
+*.class
+out/
+bin/
+
+# Logs
+*.log
+hs_err_pid*
+replay_pid*
+
+# IDE/editor
+.idea/
+*.iml
+.vscode/
+*.ipr
+*.iws
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Maven
+.mvn/timing.properties

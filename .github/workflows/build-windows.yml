@@ -1,0 +1,48 @@
+name: Build Windows Installer
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      - name: Build Jar
+        run: mvn -B clean package -DskipTests
+
+      - name: Package EXE
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          jpackage `
+            --type exe `
+            --name "Audio Downloader Pro" `
+            --app-version "1.0.0" `
+            --input target `
+            --main-jar "audio-downloader-pro-1.0.0.jar" `
+            --main-class "com.audiodownloader.ui.AudioDownloaderApplication" `
+            --dest dist `
+            --vendor "Audio Downloader Pro Team" `
+            --win-dir-chooser `
+            --win-shortcut
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: audio-downloader-pro-windows-exe
+          path: dist/*.exe

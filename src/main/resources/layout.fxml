@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.geometry.Insets?>
+<?import javafx.scene.control.*?>
+<?import javafx.scene.layout.*?>
+
+<BorderPane xmlns="http://javafx.com/javafx/21"
+            xmlns:fx="http://javafx.com/fxml/1"
+            fx:controller="com.audiodownloader.ui.MainController"
+            styleClass="root-pane">
+    <top>
+        <VBox spacing="10.0" BorderPane.alignment="CENTER">
+            <padding>
+                <Insets top="14" right="14" bottom="10" left="14"/>
+            </padding>
+            <Label text="Audio Downloader Pro" styleClass="title-label"/>
+            <HBox spacing="8.0">
+                <TextField fx:id="urlField" promptText="Paste YouTube URL here" HBox.hgrow="ALWAYS"/>
+                <Button text="Fetch Playlist" onAction="#onFetchPlaylist"/>
+                <Button text="Download Selected" onAction="#onDownloadSelected"/>
+            </HBox>
+            <HBox spacing="8.0">
+                <Label text="Download Folder:"/>
+                <TextField fx:id="downloadFolderField" editable="false" HBox.hgrow="ALWAYS"/>
+            </HBox>
+        </VBox>
+    </top>
+    <center>
+        <SplitPane dividerPositions="0.48, 0.74">
+            <items>
+                <VBox spacing="8.0">
+                    <padding>
+                        <Insets top="8" right="10" bottom="10" left="14"/>
+                    </padding>
+                    <Label text="Playlist Preview" styleClass="section-label"/>
+                    <TableView fx:id="playlistTable" VBox.vgrow="ALWAYS">
+                        <columns>
+                            <TableColumn fx:id="selectColumn" text="Select" prefWidth="70"/>
+                            <TableColumn fx:id="titleColumn" text="Title" prefWidth="260"/>
+                            <TableColumn fx:id="durationColumn" text="Duration" prefWidth="85"/>
+                            <TableColumn fx:id="channelColumn" text="Channel" prefWidth="170"/>
+                            <TableColumn fx:id="playlistStatusColumn" text="Status" prefWidth="100"/>
+                        </columns>
+                    </TableView>
+                    <Label text="Download Queue" styleClass="section-label"/>
+                    <TableView fx:id="queueTable" VBox.vgrow="ALWAYS">
+                        <columns>
+                            <TableColumn fx:id="queueStatusColumn" text="Status" prefWidth="115"/>
+                            <TableColumn fx:id="queueTitleColumn" text="Title" prefWidth="260"/>
+                            <TableColumn fx:id="queueProgressColumn" text="Progress" prefWidth="150"/>
+                            <TableColumn fx:id="queueSpeedColumn" text="Speed" prefWidth="90"/>
+                        </columns>
+                    </TableView>
+                    <HBox spacing="8.0">
+                        <Button text="Pause" onAction="#onPause"/>
+                        <Button text="Resume" onAction="#onResume"/>
+                        <Button text="Cancel" onAction="#onCancelSelected"/>
+                        <Button text="Clear Finished" onAction="#onClearFinished"/>
+                    </HBox>
+                </VBox>
+                <VBox spacing="8.0">
+                    <padding>
+                        <Insets top="8" right="10" bottom="10" left="10"/>
+                    </padding>
+                    <Label text="Logs Console" styleClass="section-label"/>
+                    <TextArea fx:id="logsArea" editable="false" wrapText="false" VBox.vgrow="ALWAYS"/>
+                </VBox>
+                <VBox spacing="8.0">
+                    <padding>
+                        <Insets top="8" right="14" bottom="10" left="10"/>
+                    </padding>
+                    <Label text="Completed Downloads" styleClass="section-label"/>
+                    <ListView fx:id="completedList" VBox.vgrow="ALWAYS"/>
+                </VBox>
+            </items>
+        </SplitPane>
+    </center>
+</BorderPane>

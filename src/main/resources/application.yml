@@ -1,0 +1,13 @@
+spring:
+  config:
+    import: optional:file:.env[.properties]
+
+# Custom audio configuration
+audio:
+  downloader:
+    music-folder: ${AUDIO_MUSIC_FOLDER:${user.home}/Music}
+    max-concurrent-downloads: 4
+    yt-dlp-command: yt-dlp
+    ffmpeg-command: ffmpeg
+    fpcalc-command: fpcalc
+    acoust-id-api-key: ${ACOUSTID_API_KEY:}
